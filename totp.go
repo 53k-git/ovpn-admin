@@ -53,7 +53,7 @@ func verifyTOTP(secret, code string) bool {
 	return totp.Validate(code, secret)
 }
 
-// initTOTPDB initializes the TOTP database table
+// initTOTPDB initializes the TOTP database table in the users database
 func initTOTPDB(dbPath string) error {
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -72,7 +72,7 @@ func initTOTPDB(dbPath string) error {
 		return err
 	}
 
-	log.Debug("TOTP database table initialized")
+	log.Debug("TOTP table initialized in users database")
 	return nil
 }
 

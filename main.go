@@ -81,7 +81,6 @@ var (
 	authDatabase             = kingpin.Flag("auth.db", "database path for password authentication").Default("./easyrsa/pki/users.db").Envar("OVPN_AUTH_DB_PATH").String()
 	authDataBaseInit         = kingpin.Flag("auth.db-init", "enable database initialization if db user not exists or size is 0").Default("false").Envar("OVPN_AUTH_DB_INIT").Bool()
 	authByTOTP               = kingpin.Flag("auth.totp", "enable TOTP (2FA) authentication").Default("false").Envar("OVPN_AUTH_TOTP").Bool()
-	totpDatabase             = kingpin.Flag("auth.totp.db", "database path for TOTP secrets").Default("./easyrsa/pki/totp.db").Envar("OVPN_TOTP_DB_PATH").String()
 	totpIssuer               = kingpin.Flag("auth.totp.issuer", "TOTP issuer name").Default("ovpn-admin").Envar("OVPN_TOTP_ISSUER").String()
 	logLevel                 = kingpin.Flag("log.level", "set log level: trace, debug, info, warn, error (default info)").Default("info").Envar("LOG_LEVEL").String()
 	logFormat                = kingpin.Flag("log.format", "set log format: text, json (default text)").Default("text").Envar("LOG_FORMAT").String()
@@ -407,7 +406,7 @@ func (oAdmin *OvpnAdmin) userEnableTOTPHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Save secret to database (not enabled yet)
-	err = saveTOTPSecret(*totpDatabase, username, key.Secret(), false)
+	err = saveTOTPSecret(*authDatabase, username, key.Secret(), false)
 	if err != nil {
 		log.Error(err)
 		http.Error(w, `{"status":"error", "message":"Failed to save TOTP secret"}`, http.StatusInternalServerError)
@@ -443,7 +442,7 @@ func (oAdmin *OvpnAdmin) userVerifyTOTPHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Get TOTP secret from database
-	totpSecret, err := getTOTPSecret(*totpDatabase, username)
+	totpSecret, err := getTOTPSecret(*authDatabase, username)
 	if err != nil {
 		log.Error(err)
 		http.Error(w, `{"status":"error", "message":"Failed to get TOTP secret"}`, http.StatusInternalServerError)
@@ -463,7 +462,7 @@ func (oAdmin *OvpnAdmin) userVerifyTOTPHandler(w http.ResponseWriter, r *http.Re
 
 	// If this is the first verification, enable TOTP
 	if !totpSecret.Enabled {
-		err = enableTOTP(*totpDatabase, username)
+		err = enableTOTP(*authDatabase, username)
 		if err != nil {
 			log.Error(err)
 			http.Error(w, `{"status":"error", "message":"Failed to enable TOTP"}`, http.StatusInternalServerError)
@@ -490,7 +489,7 @@ func (oAdmin *OvpnAdmin) userDisableTOTPHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	err := deleteTOTPSecret(*totpDatabase, username)
+	err := deleteTOTPSecret(*authDatabase, username)
 	if err != nil {
 		log.Error(err)
 		http.Error(w, `{"status":"error", "message":"Failed to disable TOTP"}`, http.StatusInternalServerError)
@@ -516,7 +515,7 @@ func (oAdmin *OvpnAdmin) userGetTOTPStatusHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	totpSecret, err := getTOTPSecret(*totpDatabase, username)
+	totpSecret, err := getTOTPSecret(*authDatabase, username)
 	if err != nil {
 		log.Error(err)
 		http.Error(w, `{"status":"error", "message":"Failed to get TOTP status"}`, http.StatusInternalServerError)
@@ -531,6 +530,37 @@ func (oAdmin *OvpnAdmin) userGetTOTPStatusHandler(w http.ResponseWriter, r *http
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"status":"ok", "enabled":%t}`, totpSecret.Enabled)
+}
+
+func (oAdmin *OvpnAdmin) userAdminDisableTOTPHandler(w http.ResponseWriter, r *http.Request) {
+	log.Info(r.RemoteAddr, " ", r.RequestURI)
+	_ = r.ParseForm()
+	if !*authByTOTP {
+		http.Error(w, `{"status":"error", "message":"TOTP not enabled"}`, http.StatusNotImplemented)
+		return
+	}
+
+	username := r.FormValue("username")
+	if username == "" {
+		http.Error(w, `{"status":"error", "message":"Username required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if !checkUserExist(username) {
+		http.Error(w, `{"status":"error", "message":"User not found"}`, http.StatusNotFound)
+		return
+	}
+
+	err := deleteTOTPSecret(*authDatabase, username)
+	if err != nil {
+		log.Error(err)
+		http.Error(w, `{"status":"error", "message":"Failed to disable TOTP"}`, http.StatusInternalServerError)
+		return
+	}
+
+	log.Infof("Admin disabled TOTP for user %s (emergency access)", username)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{"status":"ok", "message":"TOTP disabled successfully by admin"}`)
 }
 
 func (oAdmin *OvpnAdmin) userShowConfigHandler(w http.ResponseWriter, r *http.Request) {
@@ -671,11 +701,11 @@ func main() {
 	}
 
 	if *authByTOTP {
-		err := initTOTPDB(*totpDatabase)
+		err := initTOTPDB(*authDatabase)
 		if err != nil {
-			log.Errorf("Failed to initialize TOTP database: %v", err)
+			log.Errorf("Failed to initialize TOTP table: %v", err)
 		} else {
-			log.Info("TOTP database initialized")
+			log.Info("TOTP table initialized in users database")
 		}
 	}
 
@@ -749,6 +779,7 @@ func main() {
 	http.HandleFunc(*listenBaseUrl+"api/user/totp/verify", ovpnAdmin.userVerifyTOTPHandler)
 	http.HandleFunc(*listenBaseUrl+"api/user/totp/disable", ovpnAdmin.userDisableTOTPHandler)
 	http.HandleFunc(*listenBaseUrl+"api/user/totp/status", ovpnAdmin.userGetTOTPStatusHandler)
+	http.HandleFunc(*listenBaseUrl+"api/user/totp/admin/disable", ovpnAdmin.userAdminDisableTOTPHandler)
 	http.HandleFunc(*listenBaseUrl+"api/user/rotate", ovpnAdmin.userRotateHandler)
 	http.HandleFunc(*listenBaseUrl+"api/user/delete", ovpnAdmin.userDeleteHandler)
 	http.HandleFunc(*listenBaseUrl+"api/user/revoke", ovpnAdmin.userRevokeHandler)
@@ -1461,7 +1492,7 @@ func (oAdmin *OvpnAdmin) userDelete(username string) (error, string) {
 				_ = runBash(fmt.Sprintf("openvpn-user delete --force --db.path %s --user %s", *authDatabase, username))
 			}
 			if *authByTOTP {
-				err := deleteTOTPSecret(*totpDatabase, username)
+				err := deleteTOTPSecret(*authDatabase, username)
 				if err != nil {
 					log.Warnf("Failed to delete TOTP secret for user %s: %v", username, err)
 				}
