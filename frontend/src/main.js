@@ -100,6 +100,14 @@ new Vue({
         showForModule: ['passwdAuth'],
       },
       {
+        name: 'u-setup-totp',
+        label: 'Setup TOTP',
+        class: 'btn-info',
+        showWhenStatus: 'Active',
+        showForServerRole: ['master'],
+        showForModule: ['totpAuth'],
+      },
+      {
         name: 'u-revoke',
         label: 'Revoke',
         class: 'btn-warning',
@@ -201,6 +209,13 @@ new Vue({
       modalChangePasswordVisible: false,
       modalRotateUserVisible: false,
       modalDeleteUserVisible: false,
+      modalSetupTotpVisible: false,
+      totpSecret: '',
+      totpQrCode: '',
+      totpCode: '',
+      totpSetupStep: 'generate', // 'generate' or 'verify'
+      totpVerifyMessage: '',
+      totpVerifyStatus: '',
       openvpnConfig: '',
       ccd: {
         Name: '',
@@ -295,6 +310,14 @@ new Vue({
       var data = new URLSearchParams();
       data.append('username', _this.username);
     })
+    _this.$root.$on('u-setup-totp', function () {
+      _this.u.modalSetupTotpVisible = true;
+      _this.u.totpSetupStep = 'generate';
+      _this.u.totpVerifyMessage = '';
+      _this.u.totpVerifyStatus = '';
+      _this.u.totpCode = '';
+      _this.generateTOTP();
+    })
   },
   computed: {
     customAddressDynamic: function () {
@@ -329,6 +352,12 @@ new Vue({
     },
     modalDeleteUserDisplay: function () {
       return this.u.modalDeleteUserVisible ? {display: 'flex'} : {}
+    },
+    modalSetupTotpDisplay: function () {
+      return this.u.modalSetupTotpVisible ? {display: 'flex'} : {}
+    },
+    totpVerifyStatusCssClass: function () {
+      return this.u.totpVerifyStatus == 'success' ? "alert-success" : "alert-danger"
     },
     revokeFilterText: function() {
       return this.filters.hideRevoked ? "Show revoked" : "Hide revoked"
@@ -497,6 +526,66 @@ new Vue({
           _this.u.deleteUserStatus = error.response.status;
           _this.u.deleteUserMessage = error.response.data.message;
           _this.$notify({title: 'Deleting user ' + _this.username + ' failed!', type: 'error'})
+        })
+    },
+
+    generateTOTP: function() {
+      var _this = this;
+      var data = new URLSearchParams();
+      data.append('username', _this.username);
+
+      axios.request(axios_cfg('api/user/totp/enable', data, 'form'))
+        .then(function(response) {
+          var responseData = JSON.parse(response.data);
+          _this.u.totpSecret = responseData.secret;
+          _this.u.totpQrCode = responseData.qrCode;
+          _this.u.totpSetupStep = 'verify';
+          _this.$notify({title: 'TOTP secret generated for ' + _this.username, type: 'success'})
+        })
+        .catch(function(error) {
+          _this.$notify({title: 'TOTP generation failed for ' + _this.username, type: 'error'})
+          _this.u.modalSetupTotpVisible = false;
+        })
+    },
+
+    verifyTOTP: function() {
+      var _this = this;
+      var data = new URLSearchParams();
+      data.append('username', _this.username);
+      data.append('code', _this.u.totpCode);
+
+      axios.request(axios_cfg('api/user/totp/verify', data, 'form'))
+        .then(function(response) {
+          _this.u.totpVerifyStatus = 'success';
+          _this.u.totpVerifyMessage = 'TOTP enabled successfully!';
+          _this.$notify({title: 'TOTP enabled for ' + _this.username, type: 'success'})
+          setTimeout(function() {
+            _this.u.modalSetupTotpVisible = false;
+            _this.u.totpCode = '';
+            _this.u.totpSecret = '';
+            _this.u.totpQrCode = '';
+            _this.u.totpVerifyMessage = '';
+          }, 2000);
+        })
+        .catch(function(error) {
+          _this.u.totpVerifyStatus = 'error';
+          _this.u.totpVerifyMessage = 'Invalid TOTP code. Please try again.';
+          _this.$notify({title: 'TOTP verification failed', type: 'error'})
+        })
+    },
+
+    disableTOTP: function() {
+      var _this = this;
+      var data = new URLSearchParams();
+      data.append('username', _this.username);
+
+      axios.request(axios_cfg('api/user/totp/disable', data, 'form'))
+        .then(function(response) {
+          _this.$notify({title: 'TOTP disabled for ' + _this.username, type: 'success'})
+          _this.u.modalSetupTotpVisible = false;
+        })
+        .catch(function(error) {
+          _this.$notify({title: 'TOTP disable failed', type: 'error'})
         })
     },
   }
