@@ -229,6 +229,36 @@
     </div>
   </div>
 
+  <div class="modal-wrapper" v-if="u.modalSetupTotpVisible" v-bind:style="modalSetupTotpDisplay">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4>Setup TOTP for: <strong>{{ username }}</strong></h4>
+        </div>
+        <div class="modal-body" v-if="u.totpSetupStep == 'verify'">
+          <div class="d-flex flex-column align-items-center">
+            <p>Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+            <img :src="u.totpQrCode" alt="TOTP QR Code" style="max-width: 300px;"/>
+            <p class="mt-3">Or manually enter this secret:</p>
+            <code>{{ u.totpSecret }}</code>
+            <p class="mt-3">Enter the 6-digit code from your authenticator app:</p>
+            <input type="text" class="form-control el-square modal-el-margin" maxlength="6" placeholder="000000" v-model="u.totpCode" style="text-align: center; font-size: 1.5em; letter-spacing: 0.5em;">
+          </div>
+        </div>
+
+        <div class="modal-footer justify-content-center" v-if="u.totpVerifyMessage.length > 0">
+          <div class="alert" v-bind:class="totpVerifyStatusCssClass" role="alert">
+            {{ u.totpVerifyMessage }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-success el-square modal-el-margin" v-if="u.totpSetupStep == 'verify'" v-on:click.stop="verifyTOTP()">Verify & Enable</button>
+          <button type="button" class="btn btn-primary el-square d-flex justify-content-sm-end modal-el-margin" v-on:click.stop="u.totpCode='';u.totpSecret='';u.totpQrCode='';u.totpVerifyMessage='';u.modalSetupTotpVisible=false">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <notifications position="bottom left" :speed="900" />
 </div>
 <script src="dist/bundle.min.js"></script>
